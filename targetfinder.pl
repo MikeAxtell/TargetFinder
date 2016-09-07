@@ -19,7 +19,8 @@ if ($ENV{'TMPDIR'}) {
 }
 
 # Smith-Waterman alignment programs (with threads)
-my $fasta = "ssearch35_t";
+# my $fasta = "ssearch35_t";
+my $fasta = "ssearch36";  ## Current FASTA version as of Sep 7, 2016 MJA
 
 # Does the executable $fasta exist?
 my $exists = which($fasta);
