@@ -5,7 +5,7 @@ use Getopt::Std;
 my $help = "
 Shuffler.pl : Prediction of plant miRNA target sites, including control of false discovery rates, based on shuffled controls
 
-Usage: Shuffler.pl -s <sequence> -d <transcriptome.fasta>
+Usage: Shuffler.pl [options] -s <sequence> -d <transcriptome.fasta> > output_table.txt
 
 Options:
  -q <string> : Query name (deafults to 'query').
@@ -14,10 +14,12 @@ Options:
  -n <int> : Number of shuffle permutations used to derived median value (default = 10).
  -f <float> : False discovery rate .. alignments estimated to have FDR at or below this (default = 0.25).
  -r       : Also search the reverse strand for targets.
+ -a       : Show all alignments regardless of FDR cutoff
  -h       : Print this message and quit.
 
-Dependencies (in PATH .. see notes):
- targetfinder.pl  : From github.com/carringtonlab/TargetFinder  .. edit code to match up to your version of ssearch from FASTA
+Dependencies (must be in PATH):
+ targetfinder.pl  : From github.com/MikeAxtell/TargetFinder  .. edit code to match up to your version of ssearch from FASTA
+     ## credit to Noah Fahlgren / Carrington Lab for targetfinder.pl .. forked from their github repo Sep 2016.
  ssearch36 : Smith-Waterman aligner from FASTA package .. http://fasta.bioch.virginia.edu/fasta_www2/fasta_down.shtml
  uShuffle : Compiled C binary from http://digital.cs.usu.edu/~mjiang/ushuffle/ (rename it to uShuffle)
 ";
@@ -26,8 +28,8 @@ my %opt = ();
 # set defaults .. those not set here are set by targetfinder.pl
 $opt{'c'} = 8;
 $opt{'n'} = 10;
-
-getopts('d:s:q:c:t:n:rh', \%opt);
+$opt{'f'} = 0.25;
+getopts('d:s:q:c:t:n:f:rah', \%opt);
 
 # give help if requested
 if($opt{'h'}) {
@@ -139,7 +141,7 @@ for(my $k = 0; $k <= $opt{'c'}; $k += 0.5) {
     $shuf_median_inverse_cumulative{$k} = $sic;
 }
 
-# Calculate the confusion metric
+# Calculate the confusion matrix
 my %TP = ();
 my %FP = ();
 my %TN = ();
@@ -163,24 +165,60 @@ for(my $i = 0; $i <= $opt{'c'}; $i += 0.5) {
     $TN{$i} = $N - $FN{$i}; ## Logically, TNs are N - FN.
     
     $acc{$i} = ACC($TP{$i}, $TN{$i}, $FP{$i}, $FN{$i});
-    $f1{$i} = F1($TP{$i}, $FP{$i}, $FN{$i});
+    # $f1{$i} = F1($TP{$i}, $FP{$i}, $FN{$i});
     $fdr{$i} = FDR($FP{$i}, $TP{$i});
 }
  
-# test
-print "Score\tTrueSimple\tTrueCumulative\tShufSimple\tShufCumulative\tShufInverseCumulative";
-print "\tTP\tFP\tFN\tTN\t";
-print "\tACC\tF1\tFDR\n";
+# Report stats to user
+print STDERR "\n\nResults \(HitsC and ShufC .. the C means Cumulative\)\n";
+print STDERR "Score\tHitsC\tShufC";
+print STDERR "\tTP\tFP\tFN\tTN";
+print STDERR "\tACC\tFDR\n";
 for(my $k = 0; $k <= $opt{'c'}; $k += 0.5) {
-    print "$k\t";
-    print "$true_simple{$k}\t";
-    print "$true_cumulative{$k}\t";
-    print "$shuf_median_simple{$k}\t";
-    print "$shuf_median_cumulative{$k}\t";
-    print "$shuf_median_inverse_cumulative{$k}\t";
-    print "$TP{$k}\t$FP{$k}\t$FN{$k}\t$TN{$k}\t";
-    print "$acc{$k}\t$f1{$k}\t$fdr{$k}\n";
+    print STDERR "$k\t";
+    print STDERR "$true_cumulative{$k}\t";
+    print STDERR "$shuf_median_cumulative{$k}\t";
+    print STDERR "$TP{$k}\t$FP{$k}\t$FN{$k}\t$TN{$k}\t";
+    print STDERR "$acc{$k}\t$fdr{$k}\n";
 }
+
+# Determine cutoff
+my $cutoff = $opt{'c'};
+for(my $k = 0; $k <= $opt{'c'}; $k += 0.5) {
+    if($fdr{$k} =~ /\d/) {
+	if($fdr{$k} > $opt{'f'}) {
+	    $cutoff = $k - 0.5;
+	    last;
+	}
+    }
+}
+
+# Get the keepers
+my @keepers = ();
+foreach my $real_hit (@real_hits) {
+    my @r_h_f = split ("\t", $real_hit);
+    if($r_h_f[5] <= $cutoff) {
+	push(@keepers, $real_hit);
+    }
+}
+
+# Report
+print STDERR "\nCutoff: $cutoff\n";
+unless(@keepers) {
+    print STDERR "NO predictions scored at or below the cutoff\!\n";
+}
+if(($opt{'a'}) and (@real_hits)) {
+    print STDERR "ALL predictions being printed, regardless of FDR, because option -a was activated\n";
+    foreach my $xxx (@real_hits) {
+	print $xxx;
+    }
+} elsif (@keepers) {
+    foreach my $yyy (@keepers) {
+	print $yyy;
+    }
+}
+
+
 
 sub TPR {
     # AKA Sensitivity: TP / (TP + FN)
@@ -336,8 +374,3 @@ sub get_shuf {
     }
     return $output;
 }
-
-    
-    
-
-
