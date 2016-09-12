@@ -74,6 +74,9 @@ close TFR;
 
 # Store counts of true hits
 my %true_simple = ();
+for(my $i = 0; $i <= $opt{'c'}; $i += 0.5) {
+    $true_simple{$i} = 0;
+}
 foreach my $real_hit (@real_hits) {
     my @rh_fields = split ("\t", $real_hit);
     ++$true_simple{$rh_fields[5]};
@@ -83,9 +86,7 @@ foreach my $real_hit (@real_hits) {
 my %true_cumulative = ();
 my $tc = 0;
 for(my $i = 0; $i <= $opt{'c'}; $i += 0.5) {
-    if(exists($true_simple{$i})) {
-	$tc += $true_simple{$i};
-    }
+    $tc += $true_simple{$i};
     $true_cumulative{$i} = $tc;
 }
 
@@ -115,7 +116,7 @@ for(my $i = 1; $i <= $opt{'n'}; ++$i) {
     }
     close TF;
     for(my $j = 0; $j <= $opt{'c'}; $j += 0.5) {
-	push(@{$shuf_arrays{$i}}, $shuf_single{$i});
+	push(@{$shuf_arrays{$j}}, $shuf_single{$j});
     }
 }
 
@@ -138,23 +139,169 @@ for(my $k = 0; $k <= $opt{'c'}; $k += 0.5) {
     $shuf_median_inverse_cumulative{$k} = $sic;
 }
 
+# Calculate the confusion metric
+my %TP = ();
+my %FP = ();
+my %TN = ();
+my %FN = ();
+
+my %acc = ();
+my %f1 = ();
+my %fdr = ();
+
+
+for(my $i = 0; $i <= $opt{'c'}; $i += 0.5) {
+    my $P = $true_cumulative{$i}; ## Positives are all hits from real query at a given score
+    my $N = $true_cumulative{$opt{'c'}} - $P; ## Negatives are the remainder of hits from the real query
+    
+    my $tp_a = $P - $shuf_median_cumulative{$i}; ## TP are excess number of hits with real query vs. control
+    $TP{$i} = ($tp_a > 0) ? $tp_a : 0;  ## Boundary condition, TP can't be less than 0.
+    $FP{$i} = $P - $TP{$i};  ## Logically, FPs are P - TP.
+    
+    my $fn_a = $N - $shuf_median_inverse_cumulative{$i}; ## FN are N's in excess of what is found with real query
+    $FN{$i} = ($fn_a > 0) ? $fn_a : 0; ## Boundary condition, FN can't be less than 0.
+    $TN{$i} = $N - $FN{$i}; ## Logically, TNs are N - FN.
+    
+    $acc{$i} = ACC($TP{$i}, $TN{$i}, $FP{$i}, $FN{$i});
+    $f1{$i} = F1($TP{$i}, $FP{$i}, $FN{$i});
+    $fdr{$i} = FDR($FP{$i}, $TP{$i});
+}
+ 
 # test
-print "Score\tTrueSimple\tTrueCumulative\tShufSimple\tShufCumulative\tShufInverseCumulative\n";
+print "Score\tTrueSimple\tTrueCumulative\tShufSimple\tShufCumulative\tShufInverseCumulative";
+print "\tTP\tFP\tFN\tTN\t";
+print "\tACC\tF1\tFDR\n";
 for(my $k = 0; $k <= $opt{'c'}; $k += 0.5) {
     print "$k\t";
     print "$true_simple{$k}\t";
     print "$true_cumulative{$k}\t";
     print "$shuf_median_simple{$k}\t";
     print "$shuf_median_cumulative{$k}\t";
-    print "$shuf_median_inverse_cumulative{$k}\n";
+    print "$shuf_median_inverse_cumulative{$k}\t";
+    print "$TP{$k}\t$FP{$k}\t$FN{$k}\t$TN{$k}\t";
+    print "$acc{$k}\t$f1{$k}\t$fdr{$k}\n";
 }
 
+sub TPR {
+    # AKA Sensitivity: TP / (TP + FN)
+    my($tp, $fn) = @_;
+    my $denom = $tp + $fn;
+    if($denom > 0) {
+	my $TPR = sprintf("%.3f", $tp / $denom);
+	return $TPR;
+    } else {
+	return 'NA';
+    }
+}
 
+sub TNR {
+    # AKA Specificity: TN / (TN + FP)
+    my($tn, $fp) = @_;
+    my $denom = $tn + $fp;
+    if($denom > 0) {
+	my $TNR = sprintf("%.3f", $tn / $denom);
+	return $TNR;
+    } else {
+	return 'NA';
+    }
+}
+
+sub PPV {
+    # AKA Positive Predictive Value: TP / (TP + FP)
+    my($tp, $fp) = @_;
+    my $denom = $tp + $fp;
+    if($denom > 0) {
+	my $PPV = sprintf("%.3f", $tp / $denom);
+	return $PPV;
+    } else {
+	return 'NA';
+    }
+}
+
+sub NPV {
+    # Negative Predictive Value: TN / (TN + FN)
+    my($tn, $fn) = @_;
+    my $denom = $tn + $fn;
+    if($denom > 0) {
+	my $NPV = sprintf("%.3f", $tn / $denom);
+	return $NPV;
+    } else {
+	return 'NA';
+    }
+}
+
+sub FPR {
+    # False Positive Rate: FP / (FP + TN)
+    my($fp, $tn) = @_;
+    my $denom = $fp + $tn;
+    if($denom > 0) {
+	my $FPR = sprintf("%.3f", $fp / $denom);
+	return $FPR;
+    } else {
+	return 'NA';
+    }
+}
+
+sub FNR {
+    # False Negative Rate: FN / (FN + TP)
+    my($fn, $tp) = @_;
+    my $denom = $fn + $tp;
+    if($denom > 0) {
+	my $FNR = sprintf("%.3f", $fn / $denom);
+	return $FNR;
+    } else {
+	return 'NA';
+    }
+}
+
+sub FDR {
+    # False Discovery Rate: FP / (FP + TP)
+    my ($fp, $tp) = @_;
+    my $denom = $fp + $tp;
+    if($denom > 0) {
+	my $FDR = sprintf("%.3f", $fp / $denom);
+	return $FDR;
+    } else {
+	return 'NA';
+    }
+}
+
+sub ACC {
+    # Accuracy: (TP + TN) / (TP + TN + FP + FN)
+    my($tp, $tn, $fp, $fn) = @_;
+    my $denom = $tp + $tn + $fp + $fn;
+    if($denom > 0) {
+	my $numer = $tp + $tn;
+	my $ACC = sprintf("%.3f", $numer / $denom);
+	return $ACC;
+    } else {
+	return 'NA';
+    }
+}
+
+sub F1 {
+    # (2 * TP) / ((2 * TP) + FP + FN)
+    my($tp, $fp, $fn) = @_;
+    my $denom = (2 * $tp) + $fp + $fn;
+    my $numer = 2 * $tp;
+    if($denom > 0) {
+	my $F1 = sprintf("%.3f", $numer / $denom);
+	return $F1;
+    } else {
+	return 'NA';
+    }
+}
+    
 sub median {
     my(@data) = @_;
     my @sorted = sort {$a <=> $b} @data;
     my $length = scalar @sorted;
     my $median;
+    unless($length > 0) {
+	print STDERR "\nFatal cant calculate a median from a non-exisitent dataset\n";
+	$median = 'NA';
+	return $median;
+    }
     my $i = int($length / 2);
     if($length % 2) {
 	# odd
