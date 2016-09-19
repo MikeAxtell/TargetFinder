@@ -2,8 +2,12 @@
 use strict;
 use Getopt::Std;
 
+my $version = 0.1;
+
 my $help = "
 Shuffler.pl : Prediction of plant miRNA target sites, including control of false discovery rates, based on shuffled controls
+
+Version: $version
 
 Usage: Shuffler.pl [options] -s <sequence> -d <transcriptome.fasta> > output_table.txt
 
@@ -22,6 +26,9 @@ Dependencies (must be in PATH):
      ## credit to Noah Fahlgren / Carrington Lab for targetfinder.pl .. forked from their github repo Sep 2016.
  ssearch36 : Smith-Waterman aligner from FASTA package .. http://fasta.bioch.virginia.edu/fasta_www2/fasta_down.shtml
  uShuffle : Compiled C binary from http://digital.cs.usu.edu/~mjiang/ushuffle/ (rename it to uShuffle)
+
+Documentation: perldoc Shuffler.pl or see README_Shuffler
+
 ";
 
 my %opt = ();
@@ -67,6 +74,8 @@ if($opt{'r'}) {
 if($opt{'q'}) {
     $c_chunk .= " -q $opt{'q'}";
 }
+
+print STDERR "Shuffler.pl version $version\n";
 
 print STDERR "Searching against input query $opt{'s'}\n";
 # Call the real query, store all results
@@ -203,7 +212,7 @@ foreach my $real_hit (@real_hits) {
 }
 
 # Report
-print STDERR "\nCutoff: $cutoff\n";
+print STDERR "\nCutoff for FDR \<\=$opt{'f'}: $cutoff\n";
 unless(@keepers) {
     print STDERR "NO predictions scored at or below the cutoff\!\n";
 }
@@ -374,3 +383,100 @@ sub get_shuf {
     }
     return $output;
 }
+
+__END__
+
+=head1 SYNOPSIS
+
+Shuffler.pl - False Discovery Rate esitmation and control for plant microRNA target prediction based on Carrington Lab's targetfinder.pl
+
+=head1 AUTHOR
+
+Michael J. Axtell, Penn State University, mja18@psu.edu
+
+=head1 LICENSE
+
+Shuffler.pl (c) 2016 Michael J. Axtell
+
+This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+=head1 INSTALL
+
+From https://github.com/MikeAxtell/TargetFinder, copy the 'targetfinder.pl' and 'Shuffler.pl' scripts to your PATH (for instance, /usr/local/bin/).
+
+Retrieve and install ssearch36 from the FASTA package (http://fasta.bioch.virginia.edu/fasta_www2/fasta_down.shtml). Copy the compiled 'ssearch36' binary to your PATH. If you want to use some other version of ssearch, open up targetfinder.pl and edit the code accordingly so that correct binary name is specified.
+
+Retrieve and install the uShuffle program from http://digital.cs.usu.edu/~mjiang/ushuffle/. Compile the C version on your system, and rename it from the default name of 'main.exe' to 'uShuffle'. Copy the 'uShuffle' binary to your PATH.
+
+=head1 USAGE
+
+Usage: Shuffler.pl [options] -s <sequence> -d <transcriptome.fasta> > output_table.txt
+
+Options:
+
+ -q <string> : Query name (deafults to 'query').
+
+ -c <float> : Max score to test for (default = 8).
+
+ -t <int> : # of threads for Smith-Waterman search (default = 1).
+
+ -n <int> : Number of shuffle permutations used to derived median value (default = 10).
+
+ -f <float> : False discovery rate .. alignments estimated to have FDR at or below this (default = 0.25).
+
+ -r       : Also search the reverse strand for targets.
+
+ -a       : Show all alignments regardless of FDR cutoff
+
+ -h       : Print help message and quit.
+
+=head1 OUTPUT
+
+Predicted targets that meet the specified FDR cutoff are printed to STDOUT in the targetfinder.pl 'table' tab-delimited format.
+
+Information about the run is sent to STDERR. Abbreviations:
+
+HitsC: Cumulative number of hits with the true query
+
+ShufC: Cumulative median number of hits from the shuffled queries.
+
+TP: True Positives
+
+FP: False Positives
+
+FN: False Negatives
+
+TN: True Negatives
+
+ACC: Accuracy ... (TP + TN) / (TP + TN + FP + FN)
+
+FDR: False Discovery Rate .. FP / (FP + TP)
+
+=head1 METHODS
+
+The basic idea is to compare the number of hits obtained with a real query to the number of hits expected from randomized control queries, and use that ratio to compute a false discover rate.
+
+The shuffled queries are controlled (by uShuffle) to maintain identical dinucleotide content as the real query, so as to avoid any biases resulting from dinucleotide composition. 
+
+'Positives' (P) are defined as the HitsC value at a given score cutoff, and 'Negatives' (N) are defined as the maximum HitsC value minus 'Positives'
+
+From there, TP and FP are separated. TP are defined as Positives - ShufC, with a lower limit of zero. FP is then computed as P - TP.
+
+FN is calculated as N - iShufC, where iShufC is the inverse of the ShufC value. TN is then calculated as N - FN.
+
+=head1 NOTES AND CAVEATS
+
+This method takes advantage of the long-known fact that many plant microRNA targets have frequencies of complementary sites in the transcriptome at rates far higher than is expected from random chance (for instance, see Rhoades et al. 2002 Cell PMID: 12202040 Figure 1).
+
+However, lack of confident prediction by this method should not be taken to be evidence against the reality of any given target site. Instead, lack of evidence simply means that, using alignments alone, sites of that quality would be expected by random chance, and so further experimental evidence would be needed to support the idea of it being a target site.
